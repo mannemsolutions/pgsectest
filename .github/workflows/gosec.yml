@@ -2,8 +2,6 @@ name: Golang-security-action
 
 on:
   push:
-    tags:
-      - v*
     branches:
       - master
       - develop
