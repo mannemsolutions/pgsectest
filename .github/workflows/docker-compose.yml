@@ -1,0 +1,32 @@
+name: Docker Compose Actions Workflow
+on: push
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: update to docker-compose v2
+        run: |
+          sudo apt-get install -y curl
+          sudo curl -SL https://github.com/docker/compose/releases/download/v2.3.3/docker-compose-linux-x86_64 -o /usr/local/bin/docker-compose
+          sudo chmod +x /usr/local/bin/docker-compose
+      - name: compose
+        run: |
+          docker-compose --version
+          echo $PGVERSION
+      - name: chainsmith
+        run: |
+          chmod -R 777 config
+          docker-compose up chainsmith --exit-code-from chainsmith
+      - name: postgres
+        run: docker-compose up -d postgres --no-deps
+      - name: wait_for_postgres
+        run: |
+          for ((i=0;i<60;i++)); do
+            docker-compose exec -u postgres postgres pg_isready && exit 0
+            sleep 1
+          done
+          exit 1
+      - name: pgsectest
+        run: |
+          docker-compose up pgsectest --exit-code-from pgsectest
