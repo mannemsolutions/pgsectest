@@ -12,11 +12,24 @@ tests:
     min: 1
     max: 0
     weight: 10
+  advice: |-
+    Change your password to SCRAM by issuing the following commands:
+    postgres=# set password_encryption = 'scram-sha-256';
+    SET
+    postgres=# \password {USERNAME}
+    Enter new password for user "{USERNAME}":
+    Enter it again:
+    postgres=#
+  url: https://www.postgresql.org/docs/current/auth-password.html
 - name: Your pg_hba file contains trust and/or password
   dividend: |
       select count(*) from pg_hba_file_rules where auth_method in('password', 'trust')
   divisor: |
       select count(*) from pg_hba_file_rules
+  advice: |-
+    Change your pg_hba file, and choose a more secure option instead of 'trust' or 'password', like 'scram-sha-256' or 'cert'.
+    Make sure you load the new config e.a. run the following query: `select pg_reload_config();`.
+  url: https://www.postgresql.org/docs/current/auth-methods.html
   score:
     min: 1
     max: 0

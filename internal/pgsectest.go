@@ -74,7 +74,21 @@ func Handle() {
 				log.Errorf("Test %d (%s): error occurred while running dividend query : %s", i, test.Name, err.Error())
 			} else {
 				score := test.Score.FromResult(dividend, divisor)
-				log.Debugf("Score for test %d: %f out of %f", i, score, flawLess)
+				if config.Verbosity > 2 || (config.Verbosity > 0 && score < flawLess) {
+					log.Infof("Score for test %d (%s): %.2f out of %.2f", i, test.Name, score, flawLess)
+				}
+				if config.Verbosity > 1 && score < flawLess {
+					if test.Advice != "" {
+						log.Infof("  | You can improve your score by:")
+						for _, line := range strings.Split(test.Advice, "\n") {
+							log.Infof("  | %s", line)
+						}
+					}
+					if test.Url != "" {
+						log.Infof("  |")
+						log.Infof("  | For more info, please see <%s>.", test.Url)
+					}
+				}
 				scores += score
 			}
 		}

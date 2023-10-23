@@ -23,8 +23,8 @@ services:
     environment:
       POSTGRES_PASSWORD: pgsectest
       POSTGRES_HOST_AUTH_METHOD: cert
-#    ports:
-#    - "5432:5432"
+    ports:
+    - "5432:5432"
     volumes:
     - ./:/host
     - ./config/postgresql.conf:/etc/postgresql/postgresql.conf
