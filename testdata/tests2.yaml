@@ -1,0 +1,84 @@
+---
+#debug: true
+
+tests:
+- name: test for md5
+  dividend: |
+    select count(*) from pg_shadow
+    where substring(passwd, 1,  3) = 'md5'
+  divisor: |
+    select count(*) from pg_shadow
+  score:
+    min: 1
+    max: 0
+    weight: 10
+- name: You have many superusers
+  dividend: |
+    select count(*)-1 from pg_roles where rolsuper
+  divisor: |
+    select count(*) from pg_roles
+  score:
+    min: 1
+    max: 0
+    weight: 20
+- name: You have many users that can read files
+  dividend: |
+    WITH RECURSIVE cte AS (
+      SELECT oid FROM pg_roles WHERE rolname = 'pg_read_server_files'
+      UNION ALL
+      SELECT m.member FROM cte JOIN pg_auth_members m ON m.roleid = cte.oid
+    )
+    SELECT count(*) FROM cte INNER JOIN pg_roles r ON cte.oid = r.oid AND r.rolcanlogin
+  divisor: |
+    SELECT count(*) FROM pg_roles WHERE rolcanlogin
+  score:
+    min: 1
+    max: 0
+    weight: 10
+- name: You have many users that can write files
+  dividend: |
+    WITH RECURSIVE cte AS (
+      SELECT oid FROM pg_roles WHERE rolname = 'pg_write_server_files'
+      UNION ALL
+      SELECT m.member FROM cte JOIN pg_auth_members m ON m.roleid = cte.oid
+    )
+    SELECT count(*) FROM cte INNER JOIN pg_roles r ON cte.oid = r.oid AND r.rolcanlogin
+  divisor: |
+    SELECT count(*) FROM pg_roles WHERE rolcanlogin
+  score:
+    min: 1
+    max: 0
+    weight: 10
+- name: You have many users that can execute commands
+  dividend: |
+    WITH RECURSIVE cte AS (
+      SELECT oid FROM pg_roles WHERE rolname = 'pg_execute_server_program'
+      UNION ALL
+      SELECT m.member FROM cte JOIN pg_auth_members m ON m.roleid = cte.oid
+    )
+    SELECT count(*) FROM cte INNER JOIN pg_roles r ON cte.oid = r.oid AND r.rolcanlogin
+  divisor: |
+    SELECT count(*) FROM pg_roles WHERE rolcanlogin
+  score:
+    min: 1
+    max: 0
+    weight: 10
+
+- name: Your pg_hba file contains trust and/or password
+  dividend: |
+      select count(*) from pg_hba_file_rules where auth_method in('password', 'trust')
+  divisor: |
+      select count(*) from pg_hba_file_rules
+  score:
+    min: 1
+    max: 0
+    weight: 10
+
+- name: ssl_enabled
+  query: |
+    select count(*) from pg_settings
+    where name = 'ssl' and setting = 'on'
+  score:
+    min: 0
+    max: 1
+    weight: 1

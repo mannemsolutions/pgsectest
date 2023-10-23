@@ -2,6 +2,7 @@ package internal
 
 import (
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/mannemsolutions/pgsectest/pkg/pg"
@@ -25,6 +26,22 @@ func Initialize() {
 	)).Sugar()
 
 	pg.Initialize(log)
+}
+
+func getResult(query string, conn *pg.Conn, defValue float64) (float64, error) {
+	if query == "" {
+		return defValue, nil
+	} else if f, err := strconv.ParseFloat(query, 64); err == nil {
+		return f, nil
+	} else if result, err := conn.RunQuery(query); err != nil {
+		return 0, err
+	} else if value, err := result.OneField(); err != nil {
+		return 0, err
+	} else if f, err = value.AsFloat(); err != nil {
+		return 0, err
+	} else {
+		return f, nil
+	}
 }
 
 func Handle() {
@@ -51,19 +68,14 @@ func Handle() {
 			maxScores += flawLess
 			if err = test.Validate(); err != nil {
 				log.Errorf("Test %d (%s): Invalid test: %s", i, test.Name, err.Error())
-			} else if result, err := conn.RunQuery(test.Query); err != nil {
-				log.Errorf("Test %d (%s): error occurred while running query : %s", i, test.Name, err.Error())
+			} else if dividend, err := getResult(test.Dividend, conn, float64(test.Score.Min)); err != nil {
+				log.Errorf("Test %d (%s): error occurred while running dividend query : %s", i, test.Name, err.Error())
+			} else if divisor, err := getResult(test.Divisor, conn, 1); err != nil {
+				log.Errorf("Test %d (%s): error occurred while running dividend query : %s", i, test.Name, err.Error())
 			} else {
-				if value, err := result.OneField(); err != nil {
-					log.Errorf("Test %d (%s): error occurred while retrieving field: %s", i, test.Name, err.Error())
-				} else if f, err := value.AsFloat(); err != nil {
-					log.Errorf("Test %d (%s): field is no valid numeric: %s", i, test.Name, err.Error())
-				} else {
-					score := test.Score.FromResult(f)
-					log.Debugf("Score for test %d: %f out of %f", i, score, flawLess)
-					scores += score
-
-				}
+				score := test.Score.FromResult(dividend, divisor)
+				log.Debugf("Score for test %d: %f out of %f", i, score, flawLess)
+				scores += score
 			}
 		}
 	}

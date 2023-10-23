@@ -19,11 +19,11 @@ for ((i=0;i<60;i++)); do
 done
 docker-compose logs postgres
 
-export PGUSER=postgres
-export PGHOST=127.0.0.1
-export PGSSLCERT=config/tls/int_client/certs/postgres.pem
-export PGSSLKEY=config/tls/int_client/private/postgres.key.pem
-export PGSSLROOTCERT=config/tls/int_server/certs/ca-chain-bundle.cert.pem
+#export PGUSER=postgres
+#export PGHOST=127.0.0.1
+#export PGSSLCERT=config/tls/int_client/certs/postgres.pem
+#export PGSSLKEY=config/tls/int_client/private/postgres.key.pem
+#export PGSSLROOTCERT=config/tls/int_server/certs/ca-chain-bundle.cert.pem
 docker-compose up pgsectest --exit-code-from pgsectest
 
 echo "All is as expected"
