@@ -3,13 +3,14 @@ package internal
 import (
 	"bufio"
 	"errors"
-	"flag"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"sort"
 	"time"
+
+	"github.com/spf13/pflag"
 
 	"github.com/mannemsolutions/pgsectest/pkg/pg"
 	"gopkg.in/yaml.v3"
@@ -22,10 +23,11 @@ import (
 type Configs []Config
 
 type Config struct {
-	path  string
-	index int
-	Debug bool  `yaml:"debug"`
-	Tests Tests `yaml:"tests"`
+	path      string
+	index     int
+	Debug     bool  `yaml:"debug"`
+	Verbosity int   `yaml:"verbosity"`
+	Tests     Tests `yaml:"tests"`
 
 	Delay   time.Duration `yaml:"delay"`
 	Retries uint          `yaml:"retries"`
@@ -129,17 +131,18 @@ func ReadFromFileOrDir(path string) (configs Configs, err error) {
 }
 
 func GetConfigs() (configs Configs, err error) {
-	var debug bool
-	var version bool
-	flag.BoolVar(&debug, "d", false, "Add debugging output")
-	flag.BoolVar(&version, "v", false, "Show version information")
+	var debug *bool
+	var version *bool
+	debug = pflag.BoolP("debug", "d", false, "Add debugging output")
+	version = pflag.BoolP("version", "V", false, "Show version information")
+	verbosity := pflag.CountP("verbose", "v", "Make output more verbose")
 
-	flag.Parse()
-	if version {
+	pflag.Parse()
+	if *version {
 		fmt.Println(appVersion)
 		os.Exit(0)
 	}
-	paths := flag.Args()
+	paths := pflag.Args()
 	if len(paths) == 0 {
 		log.Info("Reading tests from stdin")
 		return NewConfigsFromStdin()
@@ -153,7 +156,10 @@ func GetConfigs() (configs Configs, err error) {
 	}
 
 	for i := range configs {
-		configs[i].Debug = configs[i].Debug || debug
+		configs[i].Debug = configs[i].Debug || *debug
+		if configs[i].Verbosity == 0 {
+			configs[i].Verbosity = *verbosity
+		}
 	}
 
 	return configs, err

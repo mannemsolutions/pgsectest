@@ -12,6 +12,8 @@ type Test struct {
 	Name     string     `yaml:"name"`
 	Dividend string     `yaml:"dividend"`
 	Divisor  string     `yaml:"divisor"`
+	Url      string     `yaml:"url"`
+	Advice   string     `yaml:"advice"`
 	Results  pg.Results `yaml:"results"`
 	Score    TestScore  `yaml:"score"`
 }
