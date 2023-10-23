@@ -8,11 +8,20 @@ type TestScore struct {
 	Weight float32 `yaml:"weight"`
 }
 
-func (ts TestScore) FromResult(result float64) float64 {
+func (ts TestScore) FromResult(dividend float64, divisor float64) float64 {
 	if ts.Max == ts.Min {
 		return 0
 	}
-	return float64(ts.Weight) * (float64(result) - float64(ts.Min)) / (float64(ts.Max - ts.Min))
+	if divisor == 0 {
+		return float64(ts.Max)
+	}
+	result := ((dividend / divisor) - float64(ts.Min)) / (float64(ts.Max - ts.Min))
+	if result < 0 {
+		return 0
+	} else if result > 1 {
+		return float64(ts.Weight)
+	}
+	return float64(ts.Weight) * result
 }
 
 func (ts TestScore) Flawless() float64 {

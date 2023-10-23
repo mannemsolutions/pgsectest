@@ -3,37 +3,26 @@
 
 tests:
 - name: test for md5
-  query: |
-    with
-      e as (
-        select
-          case
-            when substring(passwd, 1,  3) = 'md5' then 'md5'
-            when substring(passwd, 1, 14) = 'SCRAM-SHA-256$' then 'SCRAM256'
-            else 'something else' end k
-          from pg_shadow),
-      s as (
-        select k, count(*) v from e group by k
-      )
-      select
-        COALESCE(
-          (select v from s where k = 'md5')::float / (select sum(v) from s)::float,
-          0)
+  dividend: |
+    select count(*) from pg_shadow
+    where substring(passwd, 1,  3) = 'md5'
+  divisor: |
+    select count(*) from pg_shadow
   score:
     min: 1
     max: 0
     weight: 10
 - name: Your pg_hba file contains trust and/or password
-  query: |
-    select
-      (select count(*) from pg_hba_file_rules where auth_method in('password', 'trust'))::float /
-      (select count(*) from pg_hba_file_rules)::float
+  dividend: |
+      select count(*) from pg_hba_file_rules where auth_method in('password', 'trust')
+  divisor: |
+      select count(*) from pg_hba_file_rules
   score:
     min: 1
     max: 0
     weight: 10
 - name: ssl_enabled
-  query: |
+  dividend: |
     select count(*)
     from pg_settings
     where name = 'ssl'
