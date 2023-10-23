@@ -2,9 +2,7 @@
 A tool to run security checks against postgres and return a score
 
 ## The origin
-While writing postgres software that manages objects in Postgres (like [pgfga](https://github.com/MannemSolutions/pgfga)), we needed a tool for easy integration testing.
-As an integration test we just wanted to create an environment with Postgres, the tool, (and other components as required), run the tool and check the outcome in postgres.
-We decided to build a tool which can run defined queries against Postgres, and check for expected results.
+We wanted to run security tests, but ajutomated across all instances we manage, and deliver results to our clients.
 And thus [pgsectest](https://github.com/MannemSolutions/pgsectest) was born.
 
 ## Downloading pgsectest
@@ -25,6 +23,19 @@ Or using stdin:
 cat ./mytests*.yml | pgsectest
 ```
 
+## Verbosity
+You can improve verbosity of output by adding one or more -v arguments:
+
+```bash
+pgsectest ./mytest*.yml ./andonemoretest.yml -vvv
+```
+Number of V's | Output
+--- | ---
+0 | Only end score
+1 | Also score for failed tests
+2 | Also advisory and url for failed tests
+3 | Also score for succeded tests (max score)
+
 ## Defining your tests
 A more detailed description can be found in [our test definition guide](TESTS.md).
 
@@ -35,37 +46,10 @@ Each test chapter can have the following information defined:
 - You can set the number of retries, delay and debugging options
 - Each test can define
   - a name (defaults to the query when not set),
-  - the query
+  - a query for the dividend and a query for the divisor
+  - an advisory how to improve your score
+  - a url for more information
   - the expected result (a list of key/value pairs)
   - the option to reverse the outcome (Ok results are counted as errors and vice versa)
 
-An example test definition could be:
-```yaml
----
-dsn:
-  host: postgres
-  port: 5432
-  user: postgres
-  password: pgsectest
-
-retries: 60
-delay: 1s
-debug: false
-
-tests:
-- name: After initialization you normally have 3 databases
-  query: "select count(*) total from pg_database"
-  results:
-  - total: 3
-- name: After initialization you normally have the databases postgres, template0 and template1
-  query: "select datname from pg_database order by 1"
-  results:
-  - datname: postgres
-  - datname: template0
-  - datname: template1
-# This test is named "select datname from pg_databases"
-- query: "select datname from pg_databases"
-  results: []
-  reverse: true
-```
->>>>>>> 1812968 (pgsectest)
+Some example test definitions can be found in the [testdata](./testdata/) folder.
