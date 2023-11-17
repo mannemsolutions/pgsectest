@@ -4,36 +4,41 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+
+	orderedmap "github.com/wk8/go-ordered-map"
 )
 
-type Result map[string]ResultValue
+type Result struct {
+	kv *orderedmap.OrderedMap
+}
 
 func NewResultFromByteArrayArray(cols []string, values []interface{}) (r Result, err error) {
-	r = make(Result)
+	om := orderedmap.New()
 	if len(cols) != len(values) {
 		return r, fmt.Errorf("number of cols different then number of values")
 	}
 	for i, col := range cols {
-		r[col] = NewResultValue(values[i])
+		om.Set(col, NewResultValue(values[i]))
 	}
+	r.kv = om
 	return r, nil
 }
 
 func (r Result) OneField() (rv ResultValue, err error) {
-	// if len(r) != 1 {
-	// 	return fmt.Errorf("There should be exactly one row to get OneField")
-	// } else
-	cols := r.Columns()
-	if len(cols) != 1 {
-		return rv, fmt.Errorf("There should be exactly one column in the one row to get OneField")
+	if oldest := r.kv.Oldest(); oldest == nil {
+		return rv, fmt.Errorf("There should be at least one column in the one row to get OneField")
+	} else if v, ok := oldest.Value.(ResultValue); !ok {
+		return rv, fmt.Errorf("Values should ResultValues")
+	} else {
+		return v, nil
 	}
-	return r[cols[0]], nil
-
 }
 
 func (r Result) String() (s string) {
 	var results []string
-	for key, value := range r {
+	for pair := r.kv.Oldest(); pair != nil; pair = pair.Next() {
+		key := pair.Key.(string)
+		value := pair.Value.(ResultValue)
 		results = append(results, fmt.Sprintf("%s: %s",
 			FormattedString(key),
 			value.Formatted()))
@@ -42,23 +47,48 @@ func (r Result) String() (s string) {
 }
 
 func (r Result) Columns() (cols []string) {
-	for key := range r {
+	for pair := r.kv.Oldest(); pair != nil; pair = pair.Next() {
+		key := pair.Key.(string)
 		cols = append(cols, key)
 	}
 	return cols
 }
 
+func (r Result) Values() (vals []string) {
+	for pair := r.kv.Oldest(); pair != nil; pair = pair.Next() {
+		value := pair.Value.(ResultValue)
+		vals = append(vals, value.AsString())
+	}
+	return vals
+}
+
+func (r Result) KeyValueStrings() (vals []string) {
+	repl := regexp.MustCompile("([ ='])")
+	for pair := r.kv.Oldest(); pair != nil; pair = pair.Next() {
+		key := pair.Key.(string)
+		key = repl.ReplaceAllString(key, "\\$1")
+		value := pair.Value.(ResultValue)
+		sVal := repl.ReplaceAllString(value.AsString(), "\\$1")
+		vals = append(vals, fmt.Sprintf("'%s'='%s'", key, sVal))
+	}
+	return vals
+}
+
 func (r Result) Compare(other Result) (err error) {
-	if len(r) != len(other) {
+	if r.kv.Len() != other.kv.Len() {
 		return fmt.Errorf("number of columns different between row %v and compared row %v",
 			r.Columns(), other.Columns())
 	}
-	for key, value := range r {
-		otherValue, exists := other[key]
-		if !exists {
-			return fmt.Errorf("column row (%s) not in compared row", FormattedString(key))
-		}
-		if matched, err := regexp.MatchString(otherValue.AsString(), value.AsString()); err != nil {
+	for pair := r.kv.Oldest(); pair != nil; pair = pair.Next() {
+		if key, ok := pair.Key.(string); !ok {
+			return fmt.Errorf("my Keys should be strings")
+		} else if value, ok := pair.Value.(ResultValue); !ok {
+			return fmt.Errorf("my Values should ResultValues")
+		} else if otherValue, exists := other.kv.Get(key); !exists {
+			return fmt.Errorf("column row (%s) not in other row", FormattedString(key))
+		} else if otherValue, ok := otherValue.(ResultValue); !ok {
+			return fmt.Errorf("others Values should ResultValues")
+		} else if matched, err := regexp.MatchString(otherValue.AsString(), value.AsString()); err != nil {
 			if value != otherValue {
 				return fmt.Errorf("comparedrow is not an re, and column %s differs between row (%s), and comparedrow (%s)",
 					FormattedString(key),
@@ -77,11 +107,19 @@ func (r Result) Compare(other Result) (err error) {
 
 type Results []Result
 
-func (rs Results) String() (s string) {
+func (rs Results) RowsKeyValues() []string {
 	var arr []string
+	for _, result := range rs {
+		arr = append(arr, strings.Join(result.KeyValueStrings(), ","))
+	}
+	return arr
+}
+
+func (rs Results) String() (s string) {
 	if len(rs) == 0 {
 		return "[ ]"
 	}
+	var arr []string
 	for _, result := range rs {
 		arr = append(arr, result.String())
 	}

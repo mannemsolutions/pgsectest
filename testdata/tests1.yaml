@@ -3,9 +3,9 @@
 
 tests:
 - name: test for md5
-  dividend: |
-    select count(*) from pg_shadow
-    where substring(passwd, 1,  3) = 'md5'
+  check: |
+    select usename from pg_shadow
+    where substring(passwd, 1, 3) = 'md5'
   divisor: |
     select count(*) from pg_shadow
   score:
@@ -22,8 +22,8 @@ tests:
     postgres=#
   url: https://www.postgresql.org/docs/current/auth-password.html
 - name: Your pg_hba file contains trust and/or password
-  dividend: |
-      select count(*) from pg_hba_file_rules where auth_method in('password', 'trust')
+  check: |
+      select line_number, type, array_to_string(database, ',') databases, array_to_string(user_name,',') users, address from pg_hba_file_rules where auth_method in('password', 'trust');
   divisor: |
       select count(*) from pg_hba_file_rules
   advice: |-
@@ -35,8 +35,8 @@ tests:
     max: 0
     weight: 10
 - name: ssl_enabled
-  dividend: |
-    select count(*)
+  check: |
+    select 'ssl=on'
     from pg_settings
     where name = 'ssl'
     and setting = 'on'

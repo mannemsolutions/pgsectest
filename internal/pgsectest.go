@@ -28,7 +28,19 @@ func Initialize() {
 	pg.Initialize(log)
 }
 
-func getResult(query string, conn *pg.Conn, defValue float64) (float64, error) {
+func getResult(query string, conn *pg.Conn, defValue float64) (float64, []string, error) {
+	if query == "" {
+		return defValue, []string{}, nil
+	} else if f, err := strconv.ParseFloat(query, 64); err == nil {
+		return f, []string{}, nil
+	} else if result, err := conn.RunQuery(query); err != nil {
+		return 0, []string{}, err
+	} else {
+		return float64(len(result)), result.RowsKeyValues(), nil
+	}
+}
+
+func getDivisor(query string, conn *pg.Conn, defValue float64) (float64, error) {
 	if query == "" {
 		return defValue, nil
 	} else if f, err := strconv.ParseFloat(query, 64); err == nil {
@@ -68,9 +80,9 @@ func Handle() {
 			maxScores += flawLess
 			if err = test.Validate(); err != nil {
 				log.Errorf("Test %d (%s): Invalid test: %s", i, test.Name, err.Error())
-			} else if dividend, err := getResult(test.Dividend, conn, float64(test.Score.Min)); err != nil {
+			} else if dividend, records, err := getResult(test.Check, conn, float64(test.Score.Min)); err != nil {
 				log.Errorf("Test %d (%s): error occurred while running dividend query : %s", i, test.Name, err.Error())
-			} else if divisor, err := getResult(test.Divisor, conn, 1); err != nil {
+			} else if divisor, err := getDivisor(test.Divisor, conn, 1); err != nil {
 				log.Errorf("Test %d (%s): error occurred while running dividend query : %s", i, test.Name, err.Error())
 			} else {
 				score := test.Score.FromResult(dividend, divisor)
@@ -87,6 +99,14 @@ func Handle() {
 					if test.Url != "" {
 						log.Infof("  |")
 						log.Infof("  | For more info, please see <%s>.", test.Url)
+					}
+					if config.Verbosity > 3 {
+						log.Infof("  |")
+						log.Info("  | Results from query:")
+						for _, record := range records {
+							log.Infof("  | - %s", record)
+						}
+
 					}
 				}
 				scores += score
