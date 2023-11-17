@@ -32,7 +32,7 @@ func FormattedString(s string) string {
 }
 
 func (rv *ResultValue) Formatted() string {
-	if rv.fstr != nil {
+	if rv.fstr == nil {
 		fstr := FormattedString(rv.AsString())
 		rv.fstr = &fstr
 	}
