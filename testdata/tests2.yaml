@@ -2,9 +2,23 @@
 #debug: true
 
 tests:
+- name: Postgres version
+  check: |
+    select generate_series(0, (setting::integer/10000)) versions
+    from pg_settings
+    where name like 'server_version_num'
+  score:
+    min: 12
+    max: 16
+    weight: 10
+  advice: |-
+    You are not running the latest major version of Postgres.
+    Every new release of Postgres is more secure, so make sure you keep up with the community.
+  url: https://www.postgresql.org/support/versioning/
+
 - name: test for md5
-  dividend: |
-    select count(*) from pg_shadow
+  check: |
+    select usename, substring(passwd, 1, 10) from pg_shadow
     where substring(passwd, 1,  3) = 'md5'
   divisor: |
     select count(*) from pg_shadow
@@ -12,73 +26,272 @@ tests:
     min: 1
     max: 0
     weight: 10
-- name: You have many superusers
-  dividend: |
-    select count(*)-1 from pg_roles where rolsuper
+  advice: |-
+    Change your password to SCRAM by issuing the following commands:
+    postgres=# set password_encryption = 'scram-sha-256';
+    SET
+    postgres=# \password {USERNAME}
+    Enter new password for user "{USERNAME}":
+    Enter it again:
+    postgres=#
+  url: https://www.postgresql.org/docs/current/auth-password.html
+
+- name: You have superusers
+  check: |
+    select rolname from pg_roles 
+    where rolsuper 
+    and rolname != 'postgres'
   divisor: |
     select count(*) from pg_roles
   score:
     min: 1
     max: 0
     weight: 20
-- name: You have many users that can read files
-  dividend: |
+  advice: |-
+    A database superuser bypasses all permission checks, except the right to log in.
+    This is a dangerous privilege and should not be used carelessly; it is best to do most of your work as a role that is not a superuser.
+  url: https://www.postgresql.org/docs/current/role-attributes.html
+
+- name: You have users that can CREATEROLE
+  check: |
+    WITH RECURSIVE cte AS (
+      SELECT oid FROM pg_roles WHERE rolcreaterole
+      UNION ALL
+      SELECT m.member FROM cte JOIN pg_auth_members m ON m.roleid = cte.oid
+    )
+    SELECT r.rolname FROM cte
+    INNER JOIN pg_roles r ON cte.oid = r.oid AND r.rolcanlogin
+    WHERE rolname != 'postgres'
+  divisor: |
+    SELECT count(*) FROM pg_roles WHERE rolcanlogin
+  score:
+    min: 1
+    max: 0
+    weight: 20
+  advice: |-
+     If you have CREATEROLE permission you could grant yourself access to other roles that 
+     - can give you the option to read & write files and execute commands
+     - change the passwords of other non-superusers
+     - gather permissions to execute code which can be abused to login without credentials as a SUPERUSER role
+  url: https://book.hacktricks.xyz/network-services-pentesting/pentesting-postgresql#createrole-privesc
+
+- name: You have users that can read files
+  check: |
     WITH RECURSIVE cte AS (
       SELECT oid FROM pg_roles WHERE rolname = 'pg_read_server_files'
       UNION ALL
       SELECT m.member FROM cte JOIN pg_auth_members m ON m.roleid = cte.oid
     )
-    SELECT count(*) FROM cte INNER JOIN pg_roles r ON cte.oid = r.oid AND r.rolcanlogin
+    SELECT r.rolname FROM cte INNER JOIN pg_roles r ON cte.oid = r.oid AND r.rolcanlogin
   divisor: |
     SELECT count(*) FROM pg_roles WHERE rolcanlogin
   score:
     min: 1
     max: 0
-    weight: 10
-- name: You have many users that can write files
-  dividend: |
+    weight: 20
+  advice: |-
+     With permissions to read files, you could read sensitive information from files like pg_hba, certificate private keys, etc. 
+  url: https://book.hacktricks.xyz/network-services-pentesting/pentesting-postgresql#read-directories-and-files
+
+- name: You have users that can write files
+  check: |
     WITH RECURSIVE cte AS (
       SELECT oid FROM pg_roles WHERE rolname = 'pg_write_server_files'
       UNION ALL
       SELECT m.member FROM cte JOIN pg_auth_members m ON m.roleid = cte.oid
     )
-    SELECT count(*) FROM cte INNER JOIN pg_roles r ON cte.oid = r.oid AND r.rolcanlogin
+    SELECT r.rolname FROM cte INNER JOIN pg_roles r ON cte.oid = r.oid AND r.rolcanlogin
   divisor: |
     SELECT count(*) FROM pg_roles WHERE rolcanlogin
   score:
     min: 1
     max: 0
-    weight: 10
-- name: You have many users that can execute commands
-  dividend: |
+    weight: 20
+  advice: |-
+    With permissions to write files, you can also overwrite postgresql.conf which would allow you to run malicious code (e.a. in archive_command).
+  url:  https://book.hacktricks.xyz/network-services-pentesting/pentesting-postgresql#simple-file-writing
+
+- name: You have users that can execute commands
+  check: |
     WITH RECURSIVE cte AS (
       SELECT oid FROM pg_roles WHERE rolname = 'pg_execute_server_program'
       UNION ALL
       SELECT m.member FROM cte JOIN pg_auth_members m ON m.roleid = cte.oid
     )
-    SELECT count(*) FROM cte INNER JOIN pg_roles r ON cte.oid = r.oid AND r.rolcanlogin
+    SELECT r.rolname FROM cte INNER JOIN pg_roles r ON cte.oid = r.oid AND r.rolcanlogin
   divisor: |
     SELECT count(*) FROM pg_roles WHERE rolcanlogin
   score:
     min: 1
     max: 0
-    weight: 10
+    weight: 30
+  advice: |-
+    With permissions to execute os commands, you can do many malicious things including copying malicious code to the server and execute it.
+  url: https://book.hacktricks.xyz/network-services-pentesting/pentesting-postgresql#rce-to-program
 
-- name: Your pg_hba file contains trust and/or password
-  dividend: |
-      select count(*) from pg_hba_file_rules where auth_method in('password', 'trust')
+- name: You have users that have execute permisions on functions to list directory contents
+  check: |
+    WITH RECURSIVE cte AS (
+      SELECT oid FROM pg_roles 
+      WHERE rolname in (
+        SELECT grantee 
+        FROM information_schema.role_routine_grants 
+        WHERE routine_name IN ('pg_ls_dir'))
+      UNION ALL
+      SELECT m.member FROM cte JOIN pg_auth_members m ON m.roleid = cte.oid
+    )
+    SELECT r.rolname 
+    FROM cte 
+    INNER JOIN pg_roles r ON cte.oid = r.oid AND r.rolcanlogin
+    WHERE rolname != 'postgres'
   divisor: |
-      select count(*) from pg_hba_file_rules
+    SELECT count(*) FROM pg_roles WHERE rolcanlogin
+  score:
+    min: 1
+    max: 0
+    weight: 5
+  advice: |-
+    pg_ls_dir can be used to read directory contents and expose sensitive information
+  url: https://www.postgresql.org/docs/current/functions-admin.html#FUNCTIONS-ADMIN-GENFILE
+
+- name: You have users that have execute permissions on functions that can read files
+  check: |
+    WITH RECURSIVE cte AS (
+      SELECT oid FROM pg_roles 
+      WHERE rolname in (
+        SELECT grantee 
+        FROM information_schema.role_routine_grants 
+        WHERE routine_name IN ('pg_read_file', 'pg_read_binary_file'))
+      UNION ALL
+      SELECT m.member FROM cte JOIN pg_auth_members m ON m.roleid = cte.oid
+    )
+    SELECT r.rolname 
+    FROM cte 
+    INNER JOIN pg_roles r ON cte.oid = r.oid AND r.rolcanlogin
+    WHERE rolname != 'postgres'
+  divisor: |
+    SELECT count(*) FROM pg_roles WHERE rolcanlogin
+  score:
+    min: 1
+    max: 0
+    weight: 30
+  advice: |-
+    With permissions to read files, you could read sensitive information from files like pg_hba, certificate private keys, etc. 
+  url: https://book.hacktricks.xyz/network-services-pentesting/pentesting-postgresql#read-directories-and-files
+
+- name: You have users that have execute permissions on functions that can create unsecured database links
+  check: |
+    WITH RECURSIVE cte AS (
+      SELECT oid FROM pg_roles 
+      WHERE rolname in (
+        SELECT grantee 
+        FROM information_schema.role_routine_grants 
+        WHERE routine_name IN ('dblink_connect_u'))
+      UNION ALL
+      SELECT m.member FROM cte JOIN pg_auth_members m ON m.roleid = cte.oid
+    )
+    SELECT r.rolname 
+    FROM cte 
+    INNER JOIN pg_roles r ON cte.oid = r.oid AND r.rolcanlogin
+    WHERE rolname != 'postgres'
+  divisor: |
+    SELECT count(*) FROM pg_roles WHERE rolcanlogin
+  score:
+    min: 1
+    max: 0
+    weight: 30
+  advice: |-
+    dblink_connect_u allows non-superusers to connect to a (remote?) database using any authentication method.
+    This is especcially risky in combination with trust authentication being enabled for local connections which would allow for privillege escallation.
+  url: https://book.hacktricks.xyz/network-services-pentesting/pentesting-postgresql#local-login
+
+- name: Your pg_hba file contains trust
+  check: |
+      select line_number, type, array_to_string(database, ',') databases, array_to_string(user_name,',') users, address
+      from pg_hba_file_rules
+      where auth_method = 'trust'
+  divisor: |
+      select count(*)
+      from pg_hba_file_rules
+  score:
+    min: 1
+    max: 0
+    weight: 30
+  advice: |-
+    By allowing access with trust authentication, users can login as other users without supplying any password, so basically, the authorization is completely bypassed.
+    This is extremely dangerous, especially in combination with other vulnerabilities, such as superuser privilleges, read write and execute files, etc.
+    Change your pg_hba file, and choose a more secure option like 'scram-sha-256' or 'cert'.
+    Make sure you load the new config e.a. run the following query: `select pg_reload_config();`.
+  url: https://book.hacktricks.xyz/network-services-pentesting/pentesting-postgresql#privesc-to-superuser
+
+- name: Your pg_hba file contains password
+  check: |
+      select line_number, type, array_to_string(database, ',') databases, array_to_string(user_name,',') users, address
+      from pg_hba_file_rules
+      where auth_method in('password', 'trust')
+  divisor: |
+      select count(*) 
+      from pg_hba_file_rules
   score:
     min: 1
     max: 0
     weight: 10
+  advice: |-
+    By allowing access with 'password' authentication, passwords are sent from the client to the server unencrypted.
+    Although properly setting up tls would prevent the biggest risk, 'password' authentication still is the one-but-weakest aurthentication option
+    (with only trust being worse).
+    Change your pg_hba file, and choose a more secure option like 'scram-sha-256' or 'cert'.
+    Make sure you load the new config e.a. run the following query: `select pg_reload_config();`.
+  url: https://www.postgresql.org/docs/current/auth-pg-hba-conf.html
 
-- name: ssl_enabled
-  query: |
-    select count(*) from pg_settings
-    where name = 'ssl' and setting = 'on'
+- name: server ssl setup
+  check: |
+    select name, setting
+    from pg_settings
+    where name = 'ssl'
+    and setting != 'on'
   score:
-    min: 0
-    max: 1
-    weight: 1
+    min: 1
+    max: 0
+    weight: 30
+  advice: |-
+    With proper ssl setup, postgres server and clients can enhance security with capabilities such as 
+    encrypting data in transit, preventing man-in-the-middle-attacks and using advanced authentication capabilities such as ssl client certificates.
+    Make sure ssl is enabled, pg_hba.conf is only configured with local, hostssl or hostgssenc and clients are properly setup with verify-full.
+  url: https://www.postgresql.org/docs/current/ssl-tcp.html
+
+- name: Accepting connections without ssl
+  check: |
+      select line_number, type, array_to_string(database, ',') databases, array_to_string(user_name,',') users, address
+      from pg_hba_file_rules
+      where type in ('host', 'hostnossl', 'hostnogssenc')
+  divisor: |
+      select count(*) from pg_hba_file_rules
+      where type != 'local'
+  score:
+    min: 1
+    max: 0
+    weight: 20
+  advice: |-
+    With proper ssl setup, postgres server and clients can enhance security with capabilities such as 
+    encrypting data in transit, preventing man-in-the-middle-attacks and using advanced authentication capabilities such as ssl client certificates.
+    Make sure ssl is enabled, pg_hba.conf is only configured with local, hostssl or hostgssenc and clients are properly setup with verify-full.
+  url: https://www.postgresql.org/docs/current/auth-pg-hba-conf.html
+
+- name: Functions with security definer
+  check: |
+    SELECT n.nspname namespace, p.proname proc
+    FROM pg_catalog.pg_proc p
+    LEFT JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace where prosecdef
+  score:
+    # This will substract 3 points for every function with sec def up until 30 points
+    min: 10
+    max: 0
+    weight: 30
+  advice: |-
+    Functions with SECURITY DEFINER are executed with the privilleges of the owner and thus
+    could be sensitive to expose capabilities and information the caller should not have access to.
+    The actual vulnerability greatly depends on the body of the function.
+    For safety reasons functions with SECURITY DEFINER should not be implemented unless absolutely necessary.
+  url: https://www.postgresql.org/docs/current/sql-createfunction.html#SQL-CREATEFUNCTION-SECURITY
+
