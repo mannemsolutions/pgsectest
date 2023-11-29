@@ -145,14 +145,19 @@ func GetConfigs() (configs Configs, err error) {
 	paths := pflag.Args()
 	if len(paths) == 0 {
 		log.Info("Reading tests from stdin")
-		return NewConfigsFromStdin()
-	}
-	for _, path := range paths {
-		newConfigs, err := ReadFromFileOrDir(path)
-		if err != nil {
+		if config, err := NewConfigsFromStdin(); err != nil {
 			return Configs{}, nil
+		} else {
+			configs = append(configs, config...)
 		}
-		configs = append(configs, newConfigs...)
+	} else {
+		for _, path := range paths {
+			newConfigs, err := ReadFromFileOrDir(path)
+			if err != nil {
+				return Configs{}, nil
+			}
+			configs = append(configs, newConfigs...)
+		}
 	}
 
 	for i := range configs {
