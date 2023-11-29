@@ -57,14 +57,16 @@ func getDivisor(query string, conn *pg.Conn, defValue float64) (float64, error) 
 }
 
 func Handle() {
-	var scores float64
-	var maxScores float64
+	var (
+		totalScores    float64
+		totalmaxScores float64
+	)
 	configs, err := GetConfigs()
 	if err != nil {
 		log.Errorf("could not parse all configs: %s", err.Error())
 		os.Exit(125)
 	}
-	for _, config := range configs {
+	for configid, config := range configs {
 		name := config.Name()
 		log.Debugf(strings.Repeat("=", 19+len(name)))
 		log.Debugf("Running tests from %s", name)
@@ -75,19 +77,21 @@ func Handle() {
 			atom.SetLevel(zapcore.InfoLevel)
 		}
 		conn := pg.NewConn(config.DSN, config.Retries, config.Delay)
+		var scores float64
+		var maxScores float64
 		for i, test := range config.Tests {
 			flawLess := test.Score.Flawless()
 			maxScores += flawLess
 			if err = test.Validate(); err != nil {
-				log.Errorf("Test %d (%s): Invalid test: %s", i, test.Name, err.Error())
+				log.Errorf("Test %d.%d (%s): Invalid test: %s", configid, i, test.Name, err.Error())
 			} else if dividend, records, err := getResult(test.Check, conn, float64(test.Score.Min)); err != nil {
-				log.Errorf("Test %d (%s): error occurred while running dividend query : %s", i, test.Name, err.Error())
+				log.Errorf("Test %d.%d (%s): error occurred while running dividend query : %s", configid, i, test.Name, err.Error())
 			} else if divisor, err := getDivisor(test.Divisor, conn, 1); err != nil {
-				log.Errorf("Test %d (%s): error occurred while running dividend query : %s", i, test.Name, err.Error())
+				log.Errorf("Test %d.%d (%s): error occurred while running dividend query : %s", configid, i, test.Name, err.Error())
 			} else {
 				score := test.Score.FromResult(dividend, divisor)
 				if config.Verbosity > 2 || (config.Verbosity > 0 && score < flawLess) {
-					log.Infof("Score for test %d (%s): %.2f out of %.2f", i, test.Name, score, flawLess)
+					log.Infof("Score for test %d.%d (%s): %.2f out of %.2f", configid, i, test.Name, score, flawLess)
 					log.Debugf("((%.2f/%.2f) - %.2f) / (%.2f-%.2f)", dividend, divisor, test.Score.Min, test.Score.Max, test.Score.Min)
 				}
 				if config.Verbosity > 1 && score < flawLess {
@@ -113,6 +117,9 @@ func Handle() {
 				scores += score
 			}
 		}
+		totalScores += scores
+		totalmaxScores += maxScores
+		log.Infof("Score testset %d: %.2f%% (%.2f out of %.2f)", configid, 100*scores/maxScores, scores, maxScores)
 	}
-	log.Infof("Score: %.2f%% (%.2f out of %.2f)", 100*scores/maxScores, scores, maxScores)
+	log.Infof("Score overall: %.2f%% (%.2f out of %.2f)", 100*totalScores/totalmaxScores, totalScores, totalmaxScores)
 }
